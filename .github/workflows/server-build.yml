@@ -210,6 +210,7 @@ jobs:
 
       - name: Upload all test report XML files as an artifact
         uses: actions/upload-artifact@v4
+        if: always()
         with:
             name: test-report-xmls
             path: $(find . -type f -name 'TEST-*.xml')
