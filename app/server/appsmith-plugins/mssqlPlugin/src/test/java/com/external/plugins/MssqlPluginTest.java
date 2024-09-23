@@ -120,6 +120,7 @@ public class MssqlPluginTest {
         long defaultPort = MssqlPlugin.getPort(endpoint);
 
         assertEquals(1433L, defaultPort);
+        assertEquals(true, false);
     }
 
     @Test
