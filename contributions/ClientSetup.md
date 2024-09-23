@@ -6,6 +6,7 @@ Appsmith's client (UI/frontend) uses the ReactJS library and Typescript. The app
 
 ### Pre-requisites:
 
+
 On your development machine, please ensure that:
 
 1. You have `docker` installed in your system. If not, please visit: [https://docs.docker.com/get-docker/](https://docs.docker.com/get-docker/)
