@@ -113,19 +113,18 @@ public class MssqlPluginTest {
 
     @Test
     public void testDefaultPort() {
-
+        assertEquals(true, false);
         Endpoint endpoint = new Endpoint();
         endpoint.setHost(container.getHost());
 
         long defaultPort = MssqlPlugin.getPort(endpoint);
 
         assertEquals(1433L, defaultPort);
-        assertEquals(true, false);
     }
 
     @Test
     public void testConnectMsSqlContainer() {
-
+        assertEquals(true, false);
         DatasourceConfiguration dsConfig = createDatasourceConfiguration(container);
 
         Mono<HikariDataSource> dsConnectionMono = mssqlPluginExecutor.datasourceCreate(dsConfig);
@@ -137,6 +136,7 @@ public class MssqlPluginTest {
 
     @Test
     public void testTestDatasource_withCorrectCredentials_returnsWithoutInvalids() {
+        assertEquals(true, false);
         DatasourceConfiguration dsConfig = createDatasourceConfiguration(container);
 
         final Mono<DatasourceTestResult> testDatasourceMono = mssqlPluginExecutor.testDatasource(dsConfig);
@@ -152,6 +152,7 @@ public class MssqlPluginTest {
 
     @Test
     public void testAliasColumnNames() {
+        assertEquals(true, false);
         DatasourceConfiguration dsConfig = createDatasourceConfiguration(container);
         Mono<HikariDataSource> dsConnectionMono = mssqlPluginExecutor.datasourceCreate(dsConfig);
 
@@ -176,6 +177,7 @@ public class MssqlPluginTest {
 
     @Test
     public void testExecute() {
+        assertEquals(true, false);
         DatasourceConfiguration dsConfig = createDatasourceConfiguration(container);
         Mono<HikariDataSource> dsConnectionMono = mssqlPluginExecutor.datasourceCreate(dsConfig);
 
@@ -220,7 +222,7 @@ public class MssqlPluginTest {
 
     @Test
     public void invalidTestConnectMsSqlContainer() {
-
+        assertEquals(true, false);
         DatasourceConfiguration dsConfig = createDatasourceConfiguration(container);
         // Set up random username and password and try to connect
         DBAuth auth = (DBAuth) dsConfig.getAuthentication();
