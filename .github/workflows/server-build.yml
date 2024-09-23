@@ -188,7 +188,7 @@ jobs:
           if ! mvn test "${args[@]}"; then
             echo "Generating failed test list:"
             failed_tests_file="$PWD/failed-server-tests.txt"
-            gawk -F\" '/<testcase / {cur_test = $4 "#" $2} /<(failure|error) / {print cur_test}' $(find . -type f -name 'TEST-*.xml') \
+            gawk -F\" '/<testcase / {cur_test = $4 "#" $2} /<(failure|error|skipped) / {print cur_test}' $(find . -type f -name 'TEST-*.xml') \
               | sort -u \
               | tee "$failed_tests_file"
             echo "Saved to $failed_tests_file"
@@ -224,6 +224,16 @@ jobs:
           path: |
             ~/run_result
           key: ${{ github.run_id }}-${{ github.job }}-server-junit
+
+      - name: Print failed server tests
+        if: always() # Ensure this step runs even if the job fails
+        run: |
+          if [[ -f app/server/failed-server-tests.txt ]]; then
+              echo "Failed server tests:"
+              cat app/server/failed-server-tests.txt
+          else
+              echo "No failed server tests found."
+          fi
 
       - name: Upload the failed tests report
         if: always()
