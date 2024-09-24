@@ -208,13 +208,26 @@ jobs:
               exit 1
             fi
 
+      # Step to find and store test files
+      - name: Find test report XML files
+        id: find_test_reports
+        run: |
+          files=$(find . -type f -name 'TEST-*.xml')
+          if [ -z "$files" ]; then
+            echo "No test report XML files found."
+            exit 0
+          else
+            echo "::set-output name=files::$files"
+          fi
+
+      # Upload all test report XML files as an artifact
       - name: Upload all test report XML files as an artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
-            name: test-report-xmls
-            path: $(find . -type f -name 'TEST-*.xml')
-            if-no-files-found: ignore
+          name: test-report-xmls
+          path: ${{ steps.find_test_reports.outputs.files }}
+          if-no-files-found: ignore
 
       # Set status = failedtest
       - name: Set fail if there are test failures
