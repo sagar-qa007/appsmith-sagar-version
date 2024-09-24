@@ -211,6 +211,7 @@ jobs:
       # Step to find and move test report XML files to a folder
       - name: Find and move test report XML files to a folder
         id: move_test_reports
+        if: always()
         run: |
           mkdir -p test-reports
           find . -type f -name 'TEST-*.xml' -exec mv {} test-reports/ \;
