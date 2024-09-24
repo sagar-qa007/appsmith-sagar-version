@@ -166,48 +166,75 @@ jobs:
       - name: Run only tests
         if: (inputs.skip-tests != 'true' || steps.run_result.outputs.run_result == 'failedtest')  && (steps.changed-files-specific.outputs.any_changed == 'true' ||  github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
         env:
-            ACTIVE_PROFILE: test
-            APPSMITH_CLOUD_SERVICES_BASE_URL: "https://release-cs.appsmith.com"
-            APPSMITH_CLOUD_SERVICES_TEMPLATE_UPLOAD_AUTH: ${{ secrets.APPSMITH_CLOUD_SERVICES_TEMPLATE_UPLOAD_AUTH }}
-            APPSMITH_REDIS_URL: "redis://127.0.0.1:6379"
-            APPSMITH_ENCRYPTION_PASSWORD: "password"
-            APPSMITH_ENCRYPTION_SALT: "salt"
-            APPSMITH_ENVFILE_PATH: /tmp/dummy.env
-            APPSMITH_VERBOSE_LOGGING_ENABLED: false
+          ACTIVE_PROFILE: test
+          APPSMITH_CLOUD_SERVICES_BASE_URL: "https://release-cs.appsmith.com"
+          APPSMITH_CLOUD_SERVICES_TEMPLATE_UPLOAD_AUTH: ${{ secrets.APPSMITH_CLOUD_SERVICES_TEMPLATE_UPLOAD_AUTH }}
+          APPSMITH_REDIS_URL: "redis://127.0.0.1:6379"
+          APPSMITH_ENCRYPTION_PASSWORD: "password"
+          APPSMITH_ENCRYPTION_SALT: "salt"
+          APPSMITH_ENVFILE_PATH: /tmp/dummy.env
+          APPSMITH_VERBOSE_LOGGING_ENABLED: false
         run: |
-            if [[ "${{ inputs.is-pg-build }}" == "true" ]]; then
-              export APPSMITH_DB_URL="postgresql://postgres:password@localhost:5432/postgres"
+          if [[ "${{ inputs.is-pg-build }}" == "true" ]]; then
+            export APPSMITH_DB_URL="postgresql://postgres:password@localhost:5432/postgres"
+          else
+            export APPSMITH_DB_URL="mongodb://localhost:27017/mobtools"
+          fi
+          
+          args=()
+
+          # Check if it's a failed test re-run
+          if [[ "${{ steps.run_result.outputs.run_result }}" == "failedtest" ]]; then
+            failed_tests="${{ steps.failed_tests.outputs.tests }}"
+            args+=("-DfailIfNoTests=false" "-Dsurefire.failIfNoSpecifiedTests=false" "-Dtest=${failed_tests}")
+          fi
+
+          # Run the tests
+          if ! mvn test "${args[@]}"; then
+            echo "Generating failed and skipped test list:"
+
+            failed_tests_file="$PWD/failed-server-tests.txt"
+            skipped_tests_file="$PWD/skipped-server-tests.txt"
+
+            # Capture failed test cases
+            gawk -F\" '/<testcase / {cur_test = $4 "#" $2} /<(failure|error) / {print cur_test}' $(find . -type f -name 'TEST-*.xml') \
+              | sort -u \
+              | tee "$failed_tests_file"
+
+            # Capture skipped test cases
+            gawk -F\" '/<testcase / {cur_test = $4 "#" $2} /<skipped / {print cur_test}' $(find . -type f -name 'TEST-*.xml') \
+              | sort -u \
+              | tee "$skipped_tests_file"
+
+            # Combine failed and skipped test cases
+            combined_tests=$(cat "$failed_tests_file" "$skipped_tests_file" | sort -u | tr '\n' ',' | sed 's/,$//')
+            
+            echo "Saved failed and skipped tests to $failed_tests_file and $skipped_tests_file"
+
+            if [[ -n "$combined_tests" ]]; then
+              echo "Re-running the following tests: $combined_tests"
+              mvn -DfailIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false -Dtest="$combined_tests" test
             else
-              export APPSMITH_DB_URL="mongodb://localhost:27017/mobtools"
-            fi
-            args=()
-            if [[ "${{ steps.run_result.outputs.run_result }}" == "failedtest" ]]; then
-              failed_tests="${{ steps.failed_tests.outputs.tests }}"
-              args+=("-DfailIfNoTests=false" "-Dsurefire.failIfNoSpecifiedTests=false" "-Dtest=${failed_tests}")
-            fi
-            if ! mvn test "${args[@]}"; then
-              echo "Generating failed test list:"
-              failed_tests_file="$PWD/failed-server-tests.txt"
-              gawk -F\" '/<testcase / {cur_test = $4 "#" $2} /<(failure|error|skipped) / {print cur_test}' $(find . -type f -name 'TEST-*.xml') \
-                | sort -u \
-                | tee "$failed_tests_file"
-              echo "Saved to $failed_tests_file"
-              if [[ -s $failed_tests_file ]]; then
-                content="$(
-                  echo "## Failed server tests"
-                  echo
-                  sed 's/^/- /' "$failed_tests_file"
-                )"
-                echo "$content" >> "$GITHUB_STEP_SUMMARY"
-                curl --silent --show-error \
-                  --header "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-                  --data "$(jq -n --arg body "$content" '$ARGS.named')" \
-                  "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/${{ inputs.pr }}/comments" \
-                  > /dev/null
-              fi
-              exit 1
+              echo "No failed or skipped tests to re-run."
             fi
 
+            # Optionally, post a comment with the list of failed tests to the PR
+            if [[ -s $failed_tests_file ]]; then
+              content="$(
+                echo "## Failed server tests"
+                echo
+                sed 's/^/- /' "$failed_tests_file"
+              )"
+              echo "$content" >> "$GITHUB_STEP_SUMMARY"
+              curl --silent --show-error \
+                --header "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                --data "$(jq -n --arg body "$content" '$ARGS.named')" \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/${{ inputs.pr }}/comments" \
+                > /dev/null
+            fi
+
+            exit 1
+          fi
       - name: Find and move test report XML files to a folder
         id: move_test_reports
         if: always()
