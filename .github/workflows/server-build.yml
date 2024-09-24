@@ -164,7 +164,7 @@ jobs:
 
       # Test the code
       - name: Run only tests
-        if: (inputs.skip-tests != 'true' || steps.run_result.outputs.run_result == 'failedtest')  && (steps.changed-files-specific.outputs.any_changed == 'true' ||  github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
+        if: (inputs.skip-tests != 'true' || steps.run_result.outputs.run_result == 'failedtest') && (steps.changed-files-specific.outputs.any_changed == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
         env:
           ACTIVE_PROFILE: test
           APPSMITH_CLOUD_SERVICES_BASE_URL: "https://release-cs.appsmith.com"
@@ -180,7 +180,7 @@ jobs:
           else
             export APPSMITH_DB_URL="mongodb://localhost:27017/mobtools"
           fi
-          
+
           args=()
 
           # Check if it's a failed test re-run
@@ -194,26 +194,24 @@ jobs:
             echo "Generating failed and skipped test list:"
 
             failed_tests_file="$PWD/failed-server-tests.txt"
-            skipped_tests_file="$PWD/skipped-server-tests.txt"
 
             # Capture failed test cases
             gawk -F\" '/<testcase / {cur_test = $4 "#" $2} /<(failure|error) / {print cur_test}' $(find . -type f -name 'TEST-*.xml') \
               | sort -u \
               | tee "$failed_tests_file"
 
-            # Capture skipped test cases
+            # Capture skipped test cases and append to the same file
             gawk -F\" '/<testcase / {cur_test = $4 "#" $2} /<skipped / {print cur_test}' $(find . -type f -name 'TEST-*.xml') \
               | sort -u \
-              | tee "$skipped_tests_file"
+              | tee -a "$failed_tests_file"
 
-            # Combine failed and skipped test cases
-            combined_tests=$(cat "$failed_tests_file" "$skipped_tests_file" | sort -u | tr '\n' ',' | sed 's/,$//')
-            
-            echo "Saved failed and skipped tests to $failed_tests_file and $skipped_tests_file"
+            echo "Saved failed and skipped tests to $failed_tests_file"
 
-            if [[ -n "$combined_tests" ]]; then
-              echo "Re-running the following tests: $combined_tests"
-              mvn -DfailIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false -Dtest="$combined_tests" test
+            # Check if there are any tests to re-run
+            if [[ -s $failed_tests_file ]]; then
+              echo "Re-running the following tests:"
+              cat "$failed_tests_file"  # Display the tests being re-run
+              mvn -DfailIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false -Dtest="$(<"$failed_tests_file")" test
             else
               echo "No failed or skipped tests to re-run."
             fi
@@ -221,7 +219,7 @@ jobs:
             # Optionally, post a comment with the list of failed tests to the PR
             if [[ -s $failed_tests_file ]]; then
               content="$(
-                echo "## Failed server tests"
+                echo "## Failed and Skipped Server Tests"
                 echo
                 sed 's/^/- /' "$failed_tests_file"
               )"
@@ -232,10 +230,10 @@ jobs:
                 "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/${{ inputs.pr }}/comments" \
                 > /dev/null
             fi
-
+            
             exit 1
           fi
-
+ 
       # Step to find and move test report XML files to a folder
       - name: Find and move test report XML files to a folder
         id: move_test_reports
