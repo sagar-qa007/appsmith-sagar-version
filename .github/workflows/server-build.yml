@@ -212,7 +212,7 @@ jobs:
 
           # Run the tests and capture the output while printing to console
           echo "Running tests..."
-          output=$(mvn test "${args[@]}" 2>&1) # Capture output to variable
+          mvn test "${args[@]}" 2>&1 | tee mvn_test.log
           echo "$output" # Print output to console
 
           # Initialize arrays to store failed and skipped module names
