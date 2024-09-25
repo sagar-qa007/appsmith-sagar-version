@@ -23,6 +23,27 @@ on:
         type: string
         default: "false"
 
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number to use for manual trigger"
+        required: false
+        type: number
+      skip-tests:
+        description: "Skip tests for this manual run"
+        required: false
+        type: string
+        default: "false"
+      branch:
+        description: "Branch to use for the build in this manual run"
+        required: false
+        type: string
+      is-pg-build:
+        description: "Is this a PG build?"
+        required: false
+        type: string
+        default: "false"
+
 # Change the working directory for all the jobs in this workflow
 defaults:
   run:
