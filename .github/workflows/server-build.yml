@@ -253,6 +253,7 @@ jobs:
 
       # Step to check the contents of the test-reports folder before uploading
       - name: Check contents of test-reports folder
+        if: always()
         run: |
           echo "Checking contents of test-reports:"
           find test-reports -type f -name '*'
