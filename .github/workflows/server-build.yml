@@ -276,10 +276,12 @@ jobs:
       - name: Check contents of test-reports folder
         if: always()
         run: |
-          echo "Checking contents of test-reports:"
-          find test-reports -type f -name '*'
           echo "Checking contents of app/server/test-reports:"
-          find app/server/ -type f -name '*'
+          find app/server/ -type f -name '*' || true
+          echo "Checking contents of test-reports:"
+          find test-reports -type f -name '*' || true
+
+
           
       # Directly upload the folder with all test report XML files as an artifact
       - name: Upload test report XML folder as an artifact
