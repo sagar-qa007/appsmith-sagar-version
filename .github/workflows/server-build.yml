@@ -183,7 +183,7 @@ jobs:
         run: |
           ./build.sh -DskipTests
 
-      # Test the code
+      # Run only tests
       - name: Run only tests
         if: (inputs.skip-tests != 'true' || steps.run_result.outputs.run_result == 'failedtest') && (steps.changed-files-specific.outputs.any_changed == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
         env:
@@ -210,51 +210,43 @@ jobs:
             args+=("-DfailIfNoTests=false" "-Dsurefire.failIfNoSpecifiedTests=false" "-Dtest=${failed_tests}")
           fi
 
-          # Run the tests
-          if ! mvn test "${args[@]}"; then
-            echo "Generating failed and skipped test list:"
+          # Run the tests and capture the output
+          echo "Running tests..."
+          output=$(mvn test "${args[@]}" 2>&1) || true  # Capture both stdout and stderr
 
-            failed_tests_file="$PWD/failed-server-tests.txt"
+          # Initialize arrays to store failed and skipped module names
+          failed_modules=()
+          skipped_modules=()
 
-            # Capture failed test cases
-            gawk -F\" '/<testcase / {cur_test = $4 "#" $2} /<(failure|error) / {print cur_test}' $(find . -type f -name 'TEST-*.xml') \
-              | sort -u \
-              | tee "$failed_tests_file"
+          # Process the captured output
+          while IFS= read -r line; do
+              if [[ $line == *"FAILURE"* ]]; then
+                  module_name=$(echo "$line" | awk '{print $1}')
+                  failed_modules+=("$module_name")
+              elif [[ $line == *"SKIPPED"* ]]; then
+                  module_name=$(echo "$line" | awk '{print $1}')
+                  skipped_modules+=("$module_name")
+              fi
+          done <<< "$output"
 
-            # Capture skipped test cases and append to the same file
-            gawk -F\" '/<testcase / {cur_test = $4 "#" $2} /<skipped / {print cur_test}' $(find . -type f -name 'TEST-*.xml') \
-              | sort -u \
-              | tee -a "$failed_tests_file"
+          # Combine failed and skipped modules into one list for searching
+          all_modules=("${failed_modules[@]}" "${skipped_modules[@]}")
+          OUTPUT_FILE="failed_skipped_tests.txt"
+          > "$OUTPUT_FILE"
 
-            echo "Saved failed and skipped tests to $failed_tests_file"
+          # Search for test classes corresponding to the modules
+          for module in "${all_modules[@]}"; do
+              test_classes=$(find . -type f -name "*${module}*.java" | sed 's|.*/||; s|\.java$||; s|^|com.external.plugins.|')
+              for class in $test_classes; do
+                  echo "${class}#" >> "$OUTPUT_FILE"
+              done
+          done
 
-            # Check if there are any tests to re-run
-            if [[ -s $failed_tests_file ]]; then
-              echo "Re-running the following tests:"
-              cat "$failed_tests_file"  # Display the tests being re-run
-              mvn -DfailIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false -Dtest="$(<"$failed_tests_file")" test
-            else
-              echo "No failed or skipped tests to re-run."
-            fi
+          echo "List of failed and skipped test cases generated in $OUTPUT_FILE:"
+          cat "$OUTPUT_FILE"
 
-            # Optionally, post a comment with the list of failed tests to the PR
-            if [[ -s $failed_tests_file ]]; then
-              content="$(
-                echo "## Failed and Skipped Server Tests"
-                echo
-                sed 's/^/- /' "$failed_tests_file"
-              )"
-              echo "$content" >> "$GITHUB_STEP_SUMMARY"
-              curl --silent --show-error \
-                --header "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-                --data "$(jq -n --arg body "$content" '$ARGS.named')" \
-                "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/${{ inputs.pr }}/comments" \
-                > /dev/null
-            fi
-
-            exit 1
-          fi
- 
+          exit 1
+  
       # # Step to find and move test report XML files to a folder
       # - name: Find and move test report XML files to a folder
       #   id: move_test_reports
