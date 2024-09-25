@@ -183,101 +183,98 @@ jobs:
         run: |
           ./build.sh -DskipTests
 
-      # Run only tests
+      # Test the code
       - name: Run only tests
-        if: (inputs.skip-tests != 'true' || steps.run_result.outputs.run_result == 'failedtest') && (steps.changed-files-specific.outputs.any_changed == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
+        if: (inputs.skip-tests != 'true' || steps.run_result.outputs.run_result == 'failedtest')  && (steps.changed-files-specific.outputs.any_changed == 'true' ||  github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
         env:
-          ACTIVE_PROFILE: test
-          APPSMITH_CLOUD_SERVICES_BASE_URL: "https://release-cs.appsmith.com"
-          APPSMITH_CLOUD_SERVICES_TEMPLATE_UPLOAD_AUTH: ${{ secrets.APPSMITH_CLOUD_SERVICES_TEMPLATE_UPLOAD_AUTH }}
-          APPSMITH_REDIS_URL: "redis://127.0.0.1:6379"
-          APPSMITH_ENCRYPTION_PASSWORD: "password"
-          APPSMITH_ENCRYPTION_SALT: "salt"
-          APPSMITH_ENVFILE_PATH: /tmp/dummy.env
-          APPSMITH_VERBOSE_LOGGING_ENABLED: false
+         ACTIVE_PROFILE: test
+         APPSMITH_CLOUD_SERVICES_BASE_URL: "https://release-cs.appsmith.com"
+         APPSMITH_CLOUD_SERVICES_TEMPLATE_UPLOAD_AUTH: ${{ secrets.APPSMITH_CLOUD_SERVICES_TEMPLATE_UPLOAD_AUTH }}
+         APPSMITH_REDIS_URL: "redis://127.0.0.1:6379"
+         APPSMITH_ENCRYPTION_PASSWORD: "password"
+         APPSMITH_ENCRYPTION_SALT: "salt"
+         APPSMITH_ENVFILE_PATH: /tmp/dummy.env
+         APPSMITH_VERBOSE_LOGGING_ENABLED: false
         run: |
           if [[ "${{ inputs.is-pg-build }}" == "true" ]]; then
-            export APPSMITH_DB_URL="postgresql://postgres:password@localhost:5432/postgres"
+              export APPSMITH_DB_URL="postgresql://postgres:password@localhost:5432/postgres"
           else
-            export APPSMITH_DB_URL="mongodb://localhost:27017/mobtools"
+              export APPSMITH_DB_URL="mongodb://localhost:27017/mobtools"
           fi
 
           args=()
-
-          # Check if it's a failed test re-run
           if [[ "${{ steps.run_result.outputs.run_result }}" == "failedtest" ]]; then
-            failed_tests="${{ steps.failed_tests.outputs.tests }}"
-            args+=("-DfailIfNoTests=false" "-Dsurefire.failIfNoSpecifiedTests=false" "-Dtest=${failed_tests}")
+              failed_tests="${{ steps.failed_tests.outputs.tests }}"
+              args+=("-DfailIfNoTests=false" "-Dsurefire.failIfNoSpecifiedTests=false" "-Dtest=${failed_tests}")
           fi
 
-          echo "Running tests..."
+          # Run mvn test and capture the result
+          if ! mvn test "${args[@]}" | tee mvn_test.log; then
+              test_result="failed"
+          else
+              test_result="passed"
+          fi
 
-          # Run the tests and capture the output in a log file and display it live
-          # Run the tests and capture the output in a log file and display it live
-          mvn test "${args[@]}" 2>&1 | tee mvn_test.log
-          
-          # Capture exit code of the mvn test command
-          mvn_exit_code=${PIPESTATUS[0]}
+          echo "Generating failed test list:"
+          failed_tests_file="$PWD/failed-server-tests.txt"
+          gawk -F\" '/<testcase / {cur_test = $4 "#" $2} /<(failure|error) / {print cur_test}' $(find . -type f -name 'TEST-*.xml') \
+              | sort -u \
+              | tee "$failed_tests_file"
+          echo "Saved to $failed_tests_file"
 
-          # Initialize arrays to store failed and skipped module names
+          if [[ -s $failed_tests_file ]]; then
+              content="$(
+                  echo "## Failed server tests"
+                  echo
+                  sed 's/^/- /' "$failed_tests_file"
+              )"
+              echo "$content" >> "$GITHUB_STEP_SUMMARY"
+              curl --silent --show-error \
+                  --header "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                  --data "$(jq -n --arg body "$content" '$ARGS.named')" \
+                  "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/${{ inputs.pr }}/comments" \
+                  > /dev/null
+          fi
+
+          # Remove the file before starting to ensure a fresh file is created
+          OUTPUT_FILE="failed_skipped_tests.txt"
+          rm -f "$OUTPUT_FILE"
+          touch "$OUTPUT_FILE"
+
           failed_modules=()
           skipped_modules=()
 
-          # Process the captured output from the log file
+          # Process mvn_test.log for FAILURE and SKIPPED statuses
           while IFS= read -r line; do
               if [[ $line == *"FAILURE"* ]]; then
-                  module_name=$(echo "$line" | awk '{print $1}')
+                  module_name=$(echo "$line" | sed -n 's/.* \(\S*\.{3}\).*/\1/p' | sed 's/\.\.\.//g')
                   failed_modules+=("$module_name")
               elif [[ $line == *"SKIPPED"* ]]; then
-                  module_name=$(echo "$line" | awk '{print $1}')
+                  module_name=$(echo "$line" | sed -n 's/.* \(\S*\.{3}\).*/\1/p' | sed 's/\.\.\.//g')
                   skipped_modules+=("$module_name")
               fi
           done < mvn_test.log
 
-          # Combine failed and skipped modules into one list for searching
-          all_modules=("${failed_modules[@]}" "${skipped_modules[@]}")
-          OUTPUT_FILE="failed_skipped_tests.txt"
-          > "$OUTPUT_FILE"
-
-          # Search for test classes corresponding to the modules
-          for module in "${all_modules[@]}"; do
-              test_classes=$(find . -type f -name "*${module}*.java" | sed 's|.*/||; s|\.java$||; s|^|com.external.plugins.|')
-              for class in $test_classes; do
-                  echo "${class}#" >> "$OUTPUT_FILE"
+          # Search for test classes in src/test/java and append unique entries to OUTPUT_FILE
+          for module in "${failed_modules[@]}" "${skipped_modules[@]}"; do
+              module_directories=$(find . -path "*/${module}*/src/test/java/*" -type f -name "*Test.java" -exec dirname {} \; | sort -u)
+              for module_directory in $module_directories; do
+                  test_classes=$(find "$module_directory" -type f -name "*Test.java" | sed 's|.*/src/test/java/||; s|\.java$||; s|/|.|g')
+                  for class_name in $test_classes; do
+                      if [[ ${#class_name} -le 240 ]] && ! grep -Fxq "$class_name#" "$OUTPUT_FILE"; then
+                          echo "${class_name}#" >> "$OUTPUT_FILE"
+                      fi
+                  done
               done
           done
 
-          echo "List of failed and skipped test cases generated in $OUTPUT_FILE:"
           cat "$OUTPUT_FILE"
 
-          # Exit with failure if any tests failed
-          if [[ ${#failed_modules[@]} -gt 0 ]]; then
-              failed_tests_file="$PWD/failed-server-tests.txt"
-              gawk -F\" '/<testcase / {cur_test = $4 "#" $2} /<(failure|error) / {print cur_test}' $(find . -type f -name 'TEST-*.xml') \
-                  | sort -u \
-                  | tee "$failed_tests_file"
-              echo "Saved to $failed_tests_file"
-
-              # Check if there are any tests to report
-              if [[ -s $failed_tests_file ]]; then
-                  content="$(
-                      echo "## Failed Server Tests"
-                      echo
-                      sed 's/^/- /' "$failed_tests_file"
-                  )"
-                  echo "$content" >> "$GITHUB_STEP_SUMMARY"
-                  # Add a comment to the PR with the list of failed tests
-                  curl --silent --show-error \
-                      --header "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-                      --data "$(jq -n --arg body "$content" '$ARGS.named')" \
-                      "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/${{ inputs.pr }}/comments" \
-                      > /dev/null
-              fi
+          # Fail the script at the end if tests did not pass
+          if [[ $test_result == "failed" ]]; then
+              exit 1
           fi
 
-          # Exit with the original mvn test exit code
-          exit $mvn_exit_code
-          
       # # Step to find and move test report XML files to a folder
       # - name: Find and move test report XML files to a folder
       #   id: move_test_reports
