@@ -210,16 +210,20 @@ jobs:
             args+=("-DfailIfNoTests=false" "-Dsurefire.failIfNoSpecifiedTests=false" "-Dtest=${failed_tests}")
           fi
 
-          # Run the tests and capture the output while printing to console
           echo "Running tests..."
+
+          # Run the tests and capture the output in a log file and display it live
+          # Run the tests and capture the output in a log file and display it live
           mvn test "${args[@]}" 2>&1 | tee mvn_test.log
-          echo "$output" # Print output to console
+          
+          # Capture exit code of the mvn test command
+          mvn_exit_code=${PIPESTATUS[0]}
 
           # Initialize arrays to store failed and skipped module names
           failed_modules=()
           skipped_modules=()
 
-          # Process the captured output
+          # Process the captured output from the log file
           while IFS= read -r line; do
               if [[ $line == *"FAILURE"* ]]; then
                   module_name=$(echo "$line" | awk '{print $1}')
@@ -228,7 +232,7 @@ jobs:
                   module_name=$(echo "$line" | awk '{print $1}')
                   skipped_modules+=("$module_name")
               fi
-          done <<< "$output"
+          done < mvn_test.log
 
           # Combine failed and skipped modules into one list for searching
           all_modules=("${failed_modules[@]}" "${skipped_modules[@]}")
@@ -246,7 +250,7 @@ jobs:
           echo "List of failed and skipped test cases generated in $OUTPUT_FILE:"
           cat "$OUTPUT_FILE"
 
-          # Check if any tests failed and create a failed tests list
+          # Exit with failure if any tests failed
           if [[ ${#failed_modules[@]} -gt 0 ]]; then
               failed_tests_file="$PWD/failed-server-tests.txt"
               gawk -F\" '/<testcase / {cur_test = $4 "#" $2} /<(failure|error) / {print cur_test}' $(find . -type f -name 'TEST-*.xml') \
@@ -269,10 +273,11 @@ jobs:
                       "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/${{ inputs.pr }}/comments" \
                       > /dev/null
               fi
-
-              # Exit with an error code if there are failed tests
-              exit 1
           fi
+
+          # Exit with the original mvn test exit code
+          exit $mvn_exit_code
+          
       # # Step to find and move test report XML files to a folder
       # - name: Find and move test report XML files to a folder
       #   id: move_test_reports
