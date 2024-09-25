@@ -23,6 +23,27 @@ on:
         type: string
         default: "false"
 
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "PR number to use for manual trigger"
+        required: false
+        type: number
+      skip-tests:
+        description: "Skip tests for this manual run"
+        required: false
+        type: string
+        default: "false"
+      branch:
+        description: "Branch to use for the build in this manual run"
+        required: false
+        type: string
+      is-pg-build:
+        description: "Is this a PG build?"
+        required: false
+        type: string
+        default: "false"
+
 # Change the working directory for all the jobs in this workflow
 defaults:
   run:
@@ -164,7 +185,7 @@ jobs:
 
       # Test the code
       - name: Run only tests
-        if: (inputs.skip-tests != 'true' || steps.run_result.outputs.run_result == 'failedtest')  && (steps.changed-files-specific.outputs.any_changed == 'true' ||  github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
+        if: (inputs.skip-tests != 'true' || steps.run_result.outputs.run_result == 'failedtest') && (steps.changed-files-specific.outputs.any_changed == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
         env:
           ACTIVE_PROFILE: test
           APPSMITH_CLOUD_SERVICES_BASE_URL: "https://release-cs.appsmith.com"
@@ -180,34 +201,94 @@ jobs:
           else
             export APPSMITH_DB_URL="mongodb://localhost:27017/mobtools"
           fi
+
           args=()
+
+          # Check if it's a failed test re-run
           if [[ "${{ steps.run_result.outputs.run_result }}" == "failedtest" ]]; then
             failed_tests="${{ steps.failed_tests.outputs.tests }}"
             args+=("-DfailIfNoTests=false" "-Dsurefire.failIfNoSpecifiedTests=false" "-Dtest=${failed_tests}")
           fi
+
+          # Run the tests
           if ! mvn test "${args[@]}"; then
-            echo "Generating failed test list:"
+            echo "Generating failed and skipped test list:"
+
             failed_tests_file="$PWD/failed-server-tests.txt"
+
+            # Capture failed test cases
             gawk -F\" '/<testcase / {cur_test = $4 "#" $2} /<(failure|error) / {print cur_test}' $(find . -type f -name 'TEST-*.xml') \
               | sort -u \
               | tee "$failed_tests_file"
-            echo "Saved to $failed_tests_file"
+
+            # Capture skipped test cases and append to the same file
+            gawk -F\" '/<testcase / {cur_test = $4 "#" $2} /<skipped / {print cur_test}' $(find . -type f -name 'TEST-*.xml') \
+              | sort -u \
+              | tee -a "$failed_tests_file"
+
+            echo "Saved failed and skipped tests to $failed_tests_file"
+
+            # Check if there are any tests to re-run
+            if [[ -s $failed_tests_file ]]; then
+              echo "Re-running the following tests:"
+              cat "$failed_tests_file"  # Display the tests being re-run
+              mvn -DfailIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false -Dtest="$(<"$failed_tests_file")" test
+            else
+              echo "No failed or skipped tests to re-run."
+            fi
+
+            # Optionally, post a comment with the list of failed tests to the PR
             if [[ -s $failed_tests_file ]]; then
               content="$(
-                echo "## Failed server tests"
+                echo "## Failed and Skipped Server Tests"
                 echo
                 sed 's/^/- /' "$failed_tests_file"
               )"
               echo "$content" >> "$GITHUB_STEP_SUMMARY"
-              # Add a comment to the PR with the list of failed tests.
               curl --silent --show-error \
                 --header "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
                 --data "$(jq -n --arg body "$content" '$ARGS.named')" \
                 "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/${{ inputs.pr }}/comments" \
                 > /dev/null
             fi
+
             exit 1
           fi
+ 
+      # # Step to find and move test report XML files to a folder
+      # - name: Find and move test report XML files to a folder
+      #   id: move_test_reports
+      #   if: always()
+      #   run: |
+      #     if [ ! -d "test-reports" ]; then
+      #       mkdir test-reports
+      #     fi
+      #     find . -type f -name 'TEST-*.xml' -exec mv {} test-reports/ \;
+
+      #     if [ -z "$(ls -A test-reports)" ]; then
+      #       echo "No test report XML files found."
+      #       echo "files=" >> $GITHUB_OUTPUT  # Set output to an empty string if no files
+      #     else
+      #       echo "files=test-reports" >> $GITHUB_OUTPUT
+      #     fi
+
+      # Step to check the contents of the test-reports folder before uploading
+      - name: Check contents of test-reports folder
+        if: always()
+        run: |
+          echo "Checking contents of test-reports:"
+          find test-reports -type f -name '*'
+          echo "Checking contents of app/server/test-reports:"
+          find app/server/ -type f -name '*'
+          
+      # Directly upload the folder with all test report XML files as an artifact
+      - name: Upload test report XML folder as an artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-report-xmls
+          path: test-reports
+          if-no-files-found: ignore
 
       # Set status = failedtest
       - name: Set fail if there are test failures
@@ -224,6 +305,16 @@ jobs:
           path: |
             ~/run_result
           key: ${{ github.run_id }}-${{ github.job }}-server-junit
+
+      - name: Print failed server tests
+        if: always() # Ensure this step runs even if the job fails
+        run: |
+          if [[ -f app/server/failed-server-tests.txt ]]; then
+              echo "Failed server tests:"
+              cat app/server/failed-server-tests.txt
+          else
+              echo "No failed server tests found."
+          fi
 
       - name: Upload the failed tests report
         if: always()
