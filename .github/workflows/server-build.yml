@@ -230,34 +230,42 @@ jobs:
                 "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/${{ inputs.pr }}/comments" \
                 > /dev/null
             fi
-            
+
             exit 1
           fi
  
-      # Step to find and move test report XML files to a folder
-      - name: Find and move test report XML files to a folder
-        id: move_test_reports
-        if: always()
+      # # Step to find and move test report XML files to a folder
+      # - name: Find and move test report XML files to a folder
+      #   id: move_test_reports
+      #   if: always()
+      #   run: |
+      #     if [ ! -d "test-reports" ]; then
+      #       mkdir test-reports
+      #     fi
+      #     find . -type f -name 'TEST-*.xml' -exec mv {} test-reports/ \;
+
+      #     if [ -z "$(ls -A test-reports)" ]; then
+      #       echo "No test report XML files found."
+      #       echo "files=" >> $GITHUB_OUTPUT  # Set output to an empty string if no files
+      #     else
+      #       echo "files=test-reports" >> $GITHUB_OUTPUT
+      #     fi
+
+      # Step to check the contents of the test-reports folder before uploading
+      - name: Check contents of test-reports folder
         run: |
-          if [ ! -d "test-reports" ]; then
-            mkdir test-reports
-          fi
-          find . -type f -name 'TEST-*.xml' -exec mv {} test-reports/ \;
-
-          if [ -z "$(ls -A test-reports)" ]; then
-            echo "No test report XML files found."
-            echo "files=" >> $GITHUB_OUTPUT  # Set output to an empty string if no files
-          else
-            echo "files=test-reports" >> $GITHUB_OUTPUT
-          fi
-
-      # Upload the folder with all test report XML files as an artifact
+          echo "Checking contents of test-reports:"
+          find test-reports -type f -name '*'
+          echo "Checking contents of app/server/test-reports:"
+          find app/server/ -type f -name '*'
+          
+      # Directly upload the folder with all test report XML files as an artifact
       - name: Upload test report XML folder as an artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-report-xmls
-          path: ${{ steps.move_test_reports.outputs.files }}
+          path: test-reports
           if-no-files-found: ignore
 
       # Set status = failedtest
