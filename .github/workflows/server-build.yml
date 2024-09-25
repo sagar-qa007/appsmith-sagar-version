@@ -184,6 +184,7 @@ jobs:
           ./build.sh -DskipTests
 
       # Run only tests
+      # Run only tests
       - name: Run only tests
         if: (inputs.skip-tests != 'true' || steps.run_result.outputs.run_result == 'failedtest') && (steps.changed-files-specific.outputs.any_changed == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
         env:
@@ -210,9 +211,9 @@ jobs:
             args+=("-DfailIfNoTests=false" "-Dsurefire.failIfNoSpecifiedTests=false" "-Dtest=${failed_tests}")
           fi
 
-          # Run the tests and capture the output
+          # Run the tests and capture the output while printing to console
           echo "Running tests..."
-          output=$(mvn test "${args[@]}" 2>&1) || true  # Capture both stdout and stderr
+          output=$(mvn test "${args[@]}" 2>&1 | tee /dev/tty) || true  # Display output to console and capture it
 
           # Initialize arrays to store failed and skipped module names
           failed_modules=()
@@ -245,8 +246,34 @@ jobs:
           echo "List of failed and skipped test cases generated in $OUTPUT_FILE:"
           cat "$OUTPUT_FILE"
 
-          exit 1
-  
+          # Check if any tests failed and create a failed tests list
+          if [[ ${#failed_modules[@]} -gt 0 ]]; then
+              failed_tests_file="$PWD/failed-server-tests.txt"
+              gawk -F\" '/<testcase / {cur_test = $4 "#" $2} /<(failure|error) / {print cur_test}' $(find . -type f -name 'TEST-*.xml') \
+                  | sort -u \
+                  | tee "$failed_tests_file"
+              echo "Saved to $failed_tests_file"
+
+              # Check if there are any tests to report
+              if [[ -s $failed_tests_file ]]; then
+                  content="$(
+                      echo "## Failed Server Tests"
+                      echo
+                      sed 's/^/- /' "$failed_tests_file"
+                  )"
+                  echo "$content" >> "$GITHUB_STEP_SUMMARY"
+                  # Add a comment to the PR with the list of failed tests
+                  curl --silent --show-error \
+                      --header "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                      --data "$(jq -n --arg body "$content" '$ARGS.named')" \
+                      "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/${{ inputs.pr }}/comments" \
+                      > /dev/null
+              fi
+
+              # Exit with an error code if there are failed tests
+              exit 1
+          fi
+
       # # Step to find and move test report XML files to a folder
       # - name: Find and move test report XML files to a folder
       #   id: move_test_reports
@@ -273,8 +300,6 @@ jobs:
           echo "Checking contents of test-reports:"
           find test-reports -type f -name '*' || true
 
-
-          
       # Directly upload the folder with all test report XML files as an artifact
       - name: Upload test report XML folder as an artifact
         uses: actions/upload-artifact@v4
