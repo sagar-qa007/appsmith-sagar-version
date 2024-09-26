@@ -208,35 +208,14 @@ jobs:
               args+=("-DfailIfNoTests=false" "-Dsurefire.failIfNoSpecifiedTests=false" "-Dtest=${failed_tests}")
           fi
 
-          # Run mvn test and capture the result
-          if ! mvn test "${args[@]}" | tee mvn_test.log; then
+          # Check for "BUILD FAILURE" in the mvn_test.log
+          if grep -q "BUILD FAILURE" mvn_test.log; then
               test_result="failed"
           else
               test_result="passed"
           fi
 
           echo "test_result variable value: ${test_result}"
-
-          echo "Generating failed test list:"
-          failed_tests_file="$PWD/failed-server-tests.txt"
-          gawk -F\" '/<testcase / {cur_test = $4 "#" $2} /<(failure|error) / {print cur_test}' $(find . -type f -name 'TEST-*.xml') \
-              | sort -u \
-              | tee "$failed_tests_file"
-          echo "Saved to $failed_tests_file"
-
-          if [[ -s $failed_tests_file ]]; then
-              content="$(
-                  echo "## Failed server tests"
-                  echo
-                  sed 's/^/- /' "$failed_tests_file"
-              )"
-              echo "$content" >> "$GITHUB_STEP_SUMMARY"
-              curl --silent --show-error \
-                  --header "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-                  --data "$(jq -n --arg body "$content" '$ARGS.named')" \
-                  "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/${{ inputs.pr }}/comments" \
-                  > /dev/null
-          fi
 
           # Remove the file before starting to ensure a fresh file is created
           OUTPUT_FILE="failed_skipped_tests.txt"
@@ -271,6 +250,20 @@ jobs:
           done
 
           cat "$OUTPUT_FILE"
+
+          if [[ -s $OUTPUT_FILE ]]; then
+              content="$(
+                  echo "## Failed server tests"
+                  echo
+                  sed 's/^/- /' "$OUTPUT_FILE"
+              )"
+              echo "$content" >> "$GITHUB_STEP_SUMMARY"
+              curl --silent --show-error \
+                  --header "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                  --data "$(jq -n --arg body "$content" '$ARGS.named')" \
+                  "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/${{ inputs.pr }}/comments" \
+                  > /dev/null
+          fi
 
           # Fail the script at the end if tests did not pass
           if [[ "$test_result" == "failed" ]]; then
