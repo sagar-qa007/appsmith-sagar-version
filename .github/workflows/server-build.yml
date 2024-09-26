@@ -239,8 +239,8 @@ jobs:
           done < mvn_test.log
 
           # Print the contents of the arrays
-          echo "Failed Modules: ${failed_modules[@]}"
-          echo "Skipped Modules: ${skipped_modules[@]}"
+          echo "Failed Modules: ${failed_modules[*]}"
+          echo "Skipped Modules: ${skipped_modules[*]}"
 
           # Search for test classes in src/test/java and append unique entries to OUTPUT_FILE
           for module in "${failed_modules[@]}" "${skipped_modules[@]}"; do
