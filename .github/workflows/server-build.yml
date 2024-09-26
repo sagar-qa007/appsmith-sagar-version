@@ -220,7 +220,7 @@ jobs:
           echo "test_result variable value: ${test_result}"
 
           # Remove the file before starting to ensure a fresh file is created
-          OUTPUT_FILE="failed_skipped_tests.txt"
+          OUTPUT_FILE="failed-server-tests.txt"
           rm -f "$OUTPUT_FILE"
           touch "$OUTPUT_FILE"
 
