@@ -230,10 +230,16 @@ jobs:
           # Process mvn_test.log for FAILURE and SKIPPED statuses
           while IFS= read -r line; do
               if [[ $line == *"FAILURE"* ]]; then
-                  module_name=$(echo "$line" | sed -n 's/.* \(\S*\.{3}\).*/\1/p' | sed 's/\.\.\.//g')
+                  # Extract the module name for FAILURE
+                  module_name=$(echo "$line" | awk '{print $2}')
+                  echo "Debug: Found FAILURE in line: $line"
+                  echo "Debug: Extracted module name: $module_name"
                   failed_modules+=("$module_name")
               elif [[ $line == *"SKIPPED"* ]]; then
-                  module_name=$(echo "$line" | sed -n 's/.* \(\S*\.{3}\).*/\1/p' | sed 's/\.\.\.//g')
+                  # Extract the module name for SKIPPED
+                  module_name=$(echo "$line" | awk '{print $2}')
+                  echo "Debug: Found SKIPPED in line: $line"
+                  echo "Debug: Extracted module name: $module_name"
                   skipped_modules+=("$module_name")
               fi
           done < mvn_test.log
@@ -242,6 +248,7 @@ jobs:
           echo "Failed Modules: ${failed_modules[*]}"
           echo "Skipped Modules: ${skipped_modules[*]}"
 
+          # Create a file with the list of failed tests
           # Search for test classes in src/test/java and append unique entries to OUTPUT_FILE
           for module in "${failed_modules[@]}" "${skipped_modules[@]}"; do
               module_directories=$(find . -path "*/${module}*/src/test/java/*" -type f -name "*Test.java" -exec dirname {} \; | sort -u)
