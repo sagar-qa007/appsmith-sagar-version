@@ -215,6 +215,8 @@ jobs:
               test_result="passed"
           fi
 
+          echo "test_result variable value: ${test_result}"
+
           echo "Generating failed test list:"
           failed_tests_file="$PWD/failed-server-tests.txt"
           gawk -F\" '/<testcase / {cur_test = $4 "#" $2} /<(failure|error) / {print cur_test}' $(find . -type f -name 'TEST-*.xml') \
@@ -271,7 +273,8 @@ jobs:
           cat "$OUTPUT_FILE"
 
           # Fail the script at the end if tests did not pass
-          if [[ $test_result == "failed" ]]; then
+          if [[ "$test_result" == "failed" ]]; then
+              echo "Tests failed, exiting with status 1."
               exit 1
           fi
 
