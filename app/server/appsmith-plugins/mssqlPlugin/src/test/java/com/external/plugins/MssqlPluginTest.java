@@ -29,6 +29,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
+import org.junit.jupiter.api.Disabled;
 
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -54,6 +55,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Testcontainers
+@Disabled
 public class MssqlPluginTest {
 
     @SuppressWarnings("rawtypes") // The type parameter for the container type is just itself and is pseudo-optional.

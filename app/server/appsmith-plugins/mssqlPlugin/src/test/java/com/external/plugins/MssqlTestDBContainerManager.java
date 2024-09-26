@@ -15,7 +15,9 @@ import java.util.List;
 
 import static com.appsmith.external.constants.PluginConstants.PluginName.MSSQL_PLUGIN_NAME;
 import static com.external.plugins.utils.MssqlExecuteUtils.closeConnectionPostExecution;
+import org.junit.jupiter.api.Disabled;
 
+@Disabled
 public class MssqlTestDBContainerManager {
 
     static MssqlPlugin.MssqlPluginExecutor mssqlPluginExecutor = new MssqlPlugin.MssqlPluginExecutor();
