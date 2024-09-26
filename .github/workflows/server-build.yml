@@ -238,6 +238,10 @@ jobs:
               fi
           done < mvn_test.log
 
+          # Print the contents of the arrays
+          echo "Failed Modules: ${failed_modules[@]}"
+          echo "Skipped Modules: ${skipped_modules[@]}"
+
           # Search for test classes in src/test/java and append unique entries to OUTPUT_FILE
           for module in "${failed_modules[@]}" "${skipped_modules[@]}"; do
               module_directories=$(find . -path "*/${module}*/src/test/java/*" -type f -name "*Test.java" -exec dirname {} \; | sort -u)
