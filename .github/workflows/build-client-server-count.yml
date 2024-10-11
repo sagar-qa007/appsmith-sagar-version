@@ -120,7 +120,7 @@ jobs:
       pr: ${{fromJson(needs.file-check.outputs.pr)}}
       run_count: ${{fromJson(needs.file-check.outputs.run_count)}}    
 
-    ci-test-limited-result:
+  ci-test-limited-result:
         needs: [file-check, ci-test-limited]
         # Only run if the file-check.runId == 0
         if: always() && needs.file-check.outputs.runId == '0'
@@ -279,15 +279,15 @@ jobs:
             if: needs.ci-test-limited.result != 'success'
             run: exit 1
     
-      ci-test-limited-result-existing:
-        needs: [file-check, ci-test-limited-existing-docker-image]
+  ci-test-limited-result-existing:
+      needs: [file-check, ci-test-limited-existing-docker-image]
         # Only run if the file-check.runId !=0
-        if: always() && needs.file-check.outputs.runId != '0'
-        runs-on: ubuntu-latest
-        defaults:
+      if: always() && needs.file-check.outputs.runId != '0'
+      runs-on: ubuntu-latest
+      defaults:
           run:
             shell: bash
-        steps:
+      steps:
           - name: Setup node
             if: needs.ci-test-limited-existing-docker-image.result != 'success'
             uses: actions/setup-node@v4
