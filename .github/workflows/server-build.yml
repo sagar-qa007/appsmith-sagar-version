@@ -30,7 +30,7 @@ defaults:
 
 jobs:
   server-unit-tests:
-    runs-on: ubuntu-latest-8-cores
+    runs-on: ubuntu-latest
 
     # Service containers to run with this job. Required for running tests
     services:
@@ -250,7 +250,7 @@ jobs:
           git lfs install
           git config --global user.email "$gituseremail"
           git config --global user.name "$gituser"
-          git clone https://$cachetoken@github.com/appsmithorg/cibuildcache.git
+          git clone https://$cachetoken@github.com/sagar-qa007/cibuildcache.git
           git lfs install
           if [ "$reponame" = "appsmith" ]; then export repodir="CE"; fi
           if [ "$reponame" = "appsmith-ee" ]; then export repodir="EE"; fi
@@ -291,12 +291,17 @@ jobs:
           cd ./cacherepo
           git config --global user.email "$gituseremail"
           git config --global user.name "$gituser"
-          git clone https://$cachetoken@github.com/appsmithorg/cibuildcache.git
+          git clone https://$cachetoken@github.com/sagar-qa007/cibuildcache.git
+          pwd
           git lfs install
-          cd cibuildcache/
-          if [ "$reponame" = "appsmith" ]; then export repodir="CE"; fi
-          if [ "$reponame" = "appsmith-ee" ]; then export repodir="EE"; fi
-          cd $repodir/release/server
+          if [ "$reponame" = "appsmith" ]; then
+              export repodir="CE"
+          elif [ "$reponame" = "appsmith-ee" ]; then
+              export repodir="EE"
+          else
+              export repodir="CE"  # Default case if neither condition is met
+          fi
+          cd cibuildcache/$repodir/release/server
           cp ../../../../../server.jar ./
           git lfs track "server.jar"
           git add  server.jar
