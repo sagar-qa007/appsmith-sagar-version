@@ -24,6 +24,7 @@ public class GsonUnorderedToOrderedSerializationTest {
     @Test
     public void convert_whenEmptySet_returnsEmptyArrayString() {
         Set data = new HashSet();
+        System.out.println(data);
         String orderedData = gson.toJson(data);
         assertThat(orderedData).isEqualTo("[]");
     }
