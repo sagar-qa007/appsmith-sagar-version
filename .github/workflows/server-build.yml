@@ -23,27 +23,6 @@ on:
         type: string
         default: "false"
 
-  workflow_dispatch:
-    inputs:
-      pr:
-        description: "PR number to use for manual trigger"
-        required: false
-        type: number
-      skip-tests:
-        description: "Skip tests for this manual run"
-        required: false
-        type: string
-        default: "false"
-      branch:
-        description: "Branch to use for the build in this manual run"
-        required: false
-        type: string
-      is-pg-build:
-        description: "Is this a PG build?"
-        required: false
-        type: string
-        default: "false"
-
 # Change the working directory for all the jobs in this workflow
 defaults:
   run:
@@ -93,6 +72,9 @@ jobs:
 
       - name: Figure out the PR number
         run: echo ${{ inputs.pr }}
+      
+      - name: Default database URL
+        run: echo "Is this a PG build? ${{ inputs.is-pg-build }}"
 
       - name: Print the Github event
         run: echo ${{ github.event_name }}
@@ -187,137 +169,48 @@ jobs:
       - name: Run only tests
         if: (inputs.skip-tests != 'true' || steps.run_result.outputs.run_result == 'failedtest')  && (steps.changed-files-specific.outputs.any_changed == 'true' ||  github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
         env:
-         ACTIVE_PROFILE: test
-         APPSMITH_CLOUD_SERVICES_BASE_URL: "https://release-cs.appsmith.com"
-         APPSMITH_CLOUD_SERVICES_TEMPLATE_UPLOAD_AUTH: ${{ secrets.APPSMITH_CLOUD_SERVICES_TEMPLATE_UPLOAD_AUTH }}
-         APPSMITH_REDIS_URL: "redis://127.0.0.1:6379"
-         APPSMITH_ENCRYPTION_PASSWORD: "password"
-         APPSMITH_ENCRYPTION_SALT: "salt"
-         APPSMITH_ENVFILE_PATH: /tmp/dummy.env
-         APPSMITH_VERBOSE_LOGGING_ENABLED: false
+          ACTIVE_PROFILE: test
+          APPSMITH_CLOUD_SERVICES_BASE_URL: "https://release-cs.appsmith.com"
+          APPSMITH_CLOUD_SERVICES_TEMPLATE_UPLOAD_AUTH: ${{ secrets.APPSMITH_CLOUD_SERVICES_TEMPLATE_UPLOAD_AUTH }}
+          APPSMITH_REDIS_URL: "redis://127.0.0.1:6379"
+          APPSMITH_ENCRYPTION_PASSWORD: "password"
+          APPSMITH_ENCRYPTION_SALT: "salt"
+          APPSMITH_ENVFILE_PATH: /tmp/dummy.env
+          APPSMITH_VERBOSE_LOGGING_ENABLED: false
         run: |
           if [[ "${{ inputs.is-pg-build }}" == "true" ]]; then
-              export APPSMITH_DB_URL="postgresql://postgres:password@localhost:5432/postgres"
+            export APPSMITH_DB_URL="postgresql://postgres:password@localhost:5432/postgres"
           else
-              export APPSMITH_DB_URL="mongodb://localhost:27017/mobtools"
+            export APPSMITH_DB_URL="mongodb://localhost:27017/mobtools"
           fi
-
           args=()
           if [[ "${{ steps.run_result.outputs.run_result }}" == "failedtest" ]]; then
-              failed_tests="${{ steps.failed_tests.outputs.tests }}"
-              args+=("-DfailIfNoTests=false" "-Dsurefire.failIfNoSpecifiedTests=false" "-Dtest=${failed_tests}")
+            failed_tests="${{ steps.failed_tests.outputs.tests }}"
+            args+=("-DfailIfNoTests=false" "-Dsurefire.failIfNoSpecifiedTests=false" "-Dtest=${failed_tests}")
           fi
-
-          mvn test "${args[@]}" | tee mvn_test.log
-          
-          # Check for "BUILD FAILURE" in the mvn_test.log
-          if grep -q "BUILD FAILURE" mvn_test.log; then
-              test_result="failed"
-          else
-              test_result="passed"
-          fi
-
-          echo "test_result variable value: ${test_result}"
-
-          # Remove the file before starting to ensure a fresh file is created
-          OUTPUT_FILE="failed-server-tests.txt"
-          rm -f "$OUTPUT_FILE"
-          touch "$OUTPUT_FILE"
-
-          failed_modules=()
-          skipped_modules=()
-
-          # Process mvn_test.log for FAILURE and SKIPPED statuses
-          while IFS= read -r line; do
-              if [[ $line == *"FAILURE"* ]]; then
-                  # Extract the module name for FAILURE
-                  module_name=$(echo "$line" | awk '{print $2}')
-                  echo "Debug: Found FAILURE in line: $line"
-                  echo "Debug: Extracted module name: $module_name"
-                  failed_modules+=("$module_name")
-              elif [[ $line == *"SKIPPED"* ]]; then
-                  # Extract the module name for SKIPPED
-                  module_name=$(echo "$line" | awk '{print $2}')
-                  echo "Debug: Found SKIPPED in line: $line"
-                  echo "Debug: Extracted module name: $module_name"
-                  skipped_modules+=("$module_name")
-              fi
-          done < mvn_test.log
-
-          # Print the contents of the arrays
-          echo "Failed Modules: ${failed_modules[*]}"
-          echo "Skipped Modules: ${skipped_modules[*]}"
-
-          # Create a file with the list of failed tests
-          # Search for test classes in src/test/java and append unique entries to OUTPUT_FILE
-          for module in "${failed_modules[@]}" "${skipped_modules[@]}"; do
-              module_directories=$(find . -path "*/${module}*/src/test/java/*" -type f -name "*Test.java" -exec dirname {} \; | sort -u)
-              for module_directory in $module_directories; do
-                  test_classes=$(find "$module_directory" -type f -name "*Test.java" | sed 's|.*/src/test/java/||; s|\.java$||; s|/|.|g')
-                  for class_name in $test_classes; do
-                      if [[ ${#class_name} -le 240 ]] && ! grep -Fxq "$class_name#" "$OUTPUT_FILE"; then
-                          echo "${class_name}#" >> "$OUTPUT_FILE"
-                      fi
-                  done
-              done
-          done
-
-          cat "$OUTPUT_FILE"
-
-          if [[ -s $OUTPUT_FILE ]]; then
+          if ! mvn test "${args[@]}"; then
+            echo "Generating failed test list:"
+            failed_tests_file="$PWD/failed-server-tests.txt"
+            gawk -F\" '/<testcase / {cur_test = $4 "#" $2} /<(failure|error) / {print cur_test}' $(find . -type f -name 'TEST-*.xml') \
+              | sort -u \
+              | tee "$failed_tests_file"
+            echo "Saved to $failed_tests_file"
+            if [[ -s $failed_tests_file ]]; then
               content="$(
-                  echo "## Failed server tests"
-                  echo
-                  sed 's/^/- /' "$OUTPUT_FILE"
+                echo "## Failed server tests"
+                echo
+                sed 's/^/- /' "$failed_tests_file"
               )"
               echo "$content" >> "$GITHUB_STEP_SUMMARY"
+              # Add a comment to the PR with the list of failed tests.
               curl --silent --show-error \
-                  --header "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-                  --data "$(jq -n --arg body "$content" '$ARGS.named')" \
-                  "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/${{ inputs.pr }}/comments" \
-                  > /dev/null
+                --header "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                --data "$(jq -n --arg body "$content" '$ARGS.named')" \
+                "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/${{ inputs.pr }}/comments" \
+                > /dev/null
+            fi
+            exit 1
           fi
-
-          # Fail the script at the end if tests did not pass
-          if [[ "$test_result" == "failed" ]]; then
-              echo "Tests failed, exiting with status 1."
-              exit 1
-          fi
-
-      # # Step to find and move test report XML files to a folder
-      # - name: Find and move test report XML files to a folder
-      #   id: move_test_reports
-      #   if: always()
-      #   run: |
-      #     if [ ! -d "test-reports" ]; then
-      #       mkdir test-reports
-      #     fi
-      #     find . -type f -name 'TEST-*.xml' -exec mv {} test-reports/ \;
-
-      #     if [ -z "$(ls -A test-reports)" ]; then
-      #       echo "No test report XML files found."
-      #       echo "files=" >> $GITHUB_OUTPUT  # Set output to an empty string if no files
-      #     else
-      #       echo "files=test-reports" >> $GITHUB_OUTPUT
-      #     fi
-
-      # Step to check the contents of the test-reports folder before uploading
-      # - name: Check contents of test-reports folder
-      #   if: always()
-      #   run: |
-      #     echo "Checking contents of app/server/test-reports:"
-      #     find app/server/ -type f -name '*' || true
-      #     echo "Checking contents of test-reports:"
-      #     find test-reports -type f -name '*' || true
-
-      # Directly upload the folder with all test report XML files as an artifact
-      # - name: Upload test report XML folder as an artifact
-      #   uses: actions/upload-artifact@v4
-      #   if: always()
-      #   with:
-      #     name: test-report-xmls
-      #     path: test-reports
-      #     if-no-files-found: ignore
 
       # Set status = failedtest
       - name: Set fail if there are test failures
@@ -335,16 +228,6 @@ jobs:
             ~/run_result
           key: ${{ github.run_id }}-${{ github.job }}-server-junit
 
-      - name: Print failed server tests
-        if: always() # Ensure this step runs even if the job fails
-        run: |
-          if [[ -f failed-server-tests.txt ]]; then
-              echo "Failed server tests:"
-              cat failed-server-tests.txt
-          else
-              echo "No failed server tests found."
-          fi
-
       - name: Upload the failed tests report
         if: always()
         uses: actions/upload-artifact@v4
@@ -354,28 +237,28 @@ jobs:
           if-no-files-found: ignore
           overwrite: true
 
-      # - name: Fetch server build from cache
-      #   if: steps.changed-files-specific.outputs.any_changed == 'false' && success()  && github.event_name != 'push' && github.event_name != 'workflow_dispatch'  && github.event_name != 'schedule'
-      #   env:
-      #     cachetoken: ${{ secrets.CACHETOKEN }}
-      #     reponame: ${{ github.event.repository.name }}
-      #     gituser: ${{ secrets.CACHE_GIT_USER }}
-      #     gituseremail: ${{ secrets.CACHE_GIT_EMAIL }}
-      #   run: |
-      #     mkdir cacherepo
-      #     cd ./cacherepo
-      #     git lfs install
-      #     git config --global user.email "$gituseremail"
-      #     git config --global user.name "$gituser"
-      #     git clone https://$cachetoken@github.com/appsmithorg/cibuildcache.git
-      #     git lfs install
-      #     if [ "$reponame" = "appsmith" ]; then export repodir="CE"; fi
-      #     if [ "$reponame" = "appsmith-ee" ]; then export repodir="EE"; fi
-      #     cd cibuildcache/$repodir/release/server
-      #     git lfs pull ./server.jar
-      #     mv ./server.jar ../../../../../server.jar
-      #     cd ../../../../../
-      #     tar -xzvf ./server.jar
+      - name: Fetch server build from cache
+        if: steps.changed-files-specific.outputs.any_changed == 'false' && success()  && github.event_name != 'push' && github.event_name != 'workflow_dispatch'  && github.event_name != 'schedule'
+        env:
+          cachetoken: ${{ secrets.CACHETOKEN }}
+          reponame: ${{ github.event.repository.name }}
+          gituser: ${{ secrets.CACHE_GIT_USER }}
+          gituseremail: ${{ secrets.CACHE_GIT_EMAIL }}
+        run: |
+          mkdir cacherepo
+          cd ./cacherepo
+          git lfs install
+          git config --global user.email "$gituseremail"
+          git config --global user.name "$gituser"
+          git clone https://$cachetoken@github.com/sagar-qa007/cibuildcache.git
+          git lfs install
+          if [ "$reponame" = "appsmith" ]; then export repodir="CE"; fi
+          if [ "$reponame" = "appsmith-ee" ]; then export repodir="EE"; fi
+          cd cibuildcache/$repodir/release/server
+          git lfs pull ./server.jar
+          mv ./server.jar ../../../../../server.jar
+          cd ../../../../../
+          tar -xzvf ./server.jar
 
       # Restore the previous built bundle if present. If not push the newly built into the cache
       - name: Restore the previous bundle
@@ -408,12 +291,17 @@ jobs:
           cd ./cacherepo
           git config --global user.email "$gituseremail"
           git config --global user.name "$gituser"
-          git clone https://$cachetoken@github.com/appsmithorg/cibuildcache.git
+          git clone https://$cachetoken@github.com/sagar-qa007/cibuildcache.git
+          pwd
           git lfs install
-          cd cibuildcache/
-          if [ "$reponame" = "appsmith" ]; then export repodir="CE"; fi
-          if [ "$reponame" = "appsmith-ee" ]; then export repodir="EE"; fi
-          cd $repodir/release/server
+          if [ "$reponame" = "appsmith" ]; then
+              export repodir="CE"
+          elif [ "$reponame" = "appsmith-ee" ]; then
+              export repodir="EE"
+          else
+              export repodir="CE"  # Default case if neither condition is met
+          fi
+          cd cibuildcache/$repodir/release/server
           cp ../../../../../server.jar ./
           git lfs track "server.jar"
           git add  server.jar
