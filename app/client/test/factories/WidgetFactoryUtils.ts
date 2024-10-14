@@ -25,6 +25,7 @@ export const buildChildren = (children: Partial<WidgetProps>[]) => {
     });
   } catch (error) {
     console.error("Check if child widget data provided");
+    console.error("Check if child widget data provided");
   }
 };
 
