@@ -65,7 +65,7 @@ jobs:
       #           const result = await client.query(`SELECT vurn_id, product, scanner_tool, priority FROM vulnerability_tracking`);
       #           console.log('Vulnerability Data:', result.rows);
 
-      #           // Extract relevant fields from the result
+      #             // Extract relevant fields from the result
       #           const extractedData = result.rows.map(({ vurn_id, product, scanner_tool, priority }) => ({
       #             vurn_id,
       #             product,
