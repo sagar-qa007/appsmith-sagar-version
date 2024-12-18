@@ -1,0 +1,69 @@
+# This workflow is responsible for building, testing & packaging the Java server codebase
+name: Test Build Cache
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "Pull Request Number"
+        required: false
+        default: ""
+
+jobs:
+  server-unit-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Check out the repository based on the provided PR or default branch
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-tags: true
+          ref: ${{ inputs.pr && format('refs/pull/{0}/merge', inputs.pr) || github.ref_name }}
+
+      # Fetch server build from cache
+      - name: Fetch server build from cache
+        env:
+          cachetoken: ${{ secrets.CACHETOKEN }}
+          reponame: ${{ github.event.repository.name }}
+          gituser: ${{ secrets.CACHE_GIT_USER }}
+          gituseremail: ${{ secrets.CACHE_GIT_EMAIL }}
+        run: |
+            set -e
+            mkdir cacherepo
+            cd ./cacherepo
+            git config --global user.email "$gituseremail"
+            git config --global user.name "$gituser"
+            git clone https://$cachetoken@github.com/appsmithorg/cibuildcache.git
+            echo `pwd`
+            cd cibuildcache/CE/release/server
+            git lfs install
+            git lfs migrate import --everything --yes
+            git lfs pull ./server.jar
+            mv ./server.jar ../../../../../server.jar
+            cd ../../../../../
+            tar -xzvf ./server.jar
+
+      # - name: Fetch client build from cache
+      #   env:
+      #       cachetoken: ${{ secrets.CACHETOKEN }}
+      #       reponame: ${{ github.event.repository.name }}
+      #       gituser: ${{ secrets.CACHE_GIT_USER }}
+      #       gituseremail: ${{ secrets.CACHE_GIT_EMAIL }}
+      #   run: |
+      #           set -e
+      #           mkdir cacherepo
+      #           cd ./cacherepo
+      #           git lfs install
+      #           git config --global user.email "$gituseremail"
+      #           git config --global user.name "$gituser"
+      #           git clone https://$cachetoken@github.com/appsmithorg/cibuildcache.git
+      #           echo `pwd`
+      #           git lfs install
+      #           cd cibuildcache/CE/release/client
+      #           git lfs install
+      #           git lfs migrate import --everything --yes
+      #           git lfs pull ./build.tar
+      #           mv ./build.tar ../../../../../build.tar
+      #           mkdir -p app/client/build
+      #           tar -xvf app/client/build.tar -C app/client/build        
