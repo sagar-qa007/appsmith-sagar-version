@@ -61,7 +61,6 @@ module.exports = {
     "@tag.Text",
     "@tag.TextEditor",
     "@tag.Theme",
-    "@tag.Testing",
     "@tag.Video",
     "@tag.Visual",
     "@tag.Widget",
