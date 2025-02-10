@@ -25,6 +25,7 @@ describe(
     });
 
     it("1. Verify Basic Functionality of Video Widget - paused, ended", function () {
+      expect(true).to.be.false;
       deployMode.DeployApp(locators._widgetInDeployed(draggableWidgets.VIDEO));
       //Play , Pause & Resume Video
       agHelper.GetElement(widgetLocators.video).then(($video) => {
